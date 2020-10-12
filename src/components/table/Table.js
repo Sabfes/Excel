@@ -3,6 +3,12 @@ import {createTable} from "@/components/table/table.template";
 import {$} from "@core/dom";
 import {TableSelection} from "@/components/table/TableSelection";
 import {range, matrix, nextSelector} from "@core/utils";
+import {resizeHandler} from "@/components/table/table.resize";
+import * as actions from '@/redux/actions'
+import {defaultStyles} from "@/constants";
+import {parse} from "@core/parse";
+
+
 
 export class Table extends ExcelComponent{
     static classname = 'excel__table';
@@ -20,61 +26,50 @@ export class Table extends ExcelComponent{
     selectCell($cell) {
         this.selection.select($cell)
         this.$emit('table:select', $cell)
+        const styles = $cell.getStyles(Object.keys(defaultStyles))
+        this.$dispatch(actions.changeStyles(styles))
     }
     init() {
         super.init()
 
         this.selectCell(this.$root.find('[data-id="0:0"]'))
-        this.$on('formula:input', text => {
-            this.selection.current.text(text)
+        this.$on('formula:input', value => {
+            this.selection.current
+                .attr('data-value', value)
+                .text(parse(value))
+            this.updateTextInStore(value)
         })
 
         this.$on('formula:done', ()=> {
             this.selection.current.focus()
         })
 
+        this.$on('toolbar:applyStyle', value=> {
+            this.selection.applyStyle(value)
+            this.$dispatch(actions.applyStyle({
+                value,
+                ids: this.selection.selectedIds
+            }))
+        })
     }
     toHTML() {
-        return createTable()
+        return createTable(20, this.store.getState())
     }
+
+    async resizeTable(event) {
+        try {
+            const data = await resizeHandler(this.$root, event)
+            this.$dispatch(actions.tableResize(data))
+        } catch (e) {
+            console.warn(e.message)
+        }
+
+    }
+
     onMousedown(event){
         // Логика ресайза
         if (event.target.dataset.resize) {
-            const $resizer = $(event.target)
-            const $parent = $resizer.closest('[data-type="resizable"]')
-            const coords = $parent.getCoords()
-            const type = $resizer.data.resize
-            const sideProp = type === 'col' ? 'bottom' : 'right'
-            let value
-
-            $resizer.css({opacity: 1, [sideProp]: '-2000px'})
-
-            document.onmousemove = e => {
-                if (type === 'col') {
-                    const delta = e.pageX - coords.right
-                    value = coords.width + delta
-                    $resizer.css({right: -delta + 'px'})
-                } else {
-                    const delta = e.pageY - coords.bottom
-                    value = coords.height + delta
-                    $resizer.css({bottom: -delta + 'px'})
-                }
-
-            }
-            document.onmouseup = () => {
-                document.onmouseup = null
-                document.onmousemove = null
-
-                if (type === 'col') {
-                    $parent.css({width: value + 'px'})
-                    this.$root.findAll(`[data-col="${$parent.data.col}"]`)
-                        .forEach(el => el.style.width = value + 'px')
-                } else {
-                    $parent.css({height: value + 'px'})
-                }
-
-                $resizer.css({opacity: 0, bottom: 0, right: 0})
-            }
+            this.resizeTable(event)
         }
         // Логика ячеек
         else if ( event.target.dataset.type === 'cell') {
@@ -84,7 +79,7 @@ export class Table extends ExcelComponent{
                 const cells =  matrix($target, this.selection.current).map( id => this.$root.find(`[data-id="${id}"]`))
                 this.selection.selectGroup(cells)
             } else {
-                this.selection.select($target)
+                this.selectCell($target)
             }
         }
     }
@@ -98,9 +93,14 @@ export class Table extends ExcelComponent{
             this.selectCell($next)
         }
     }
-
+    updateTextInStore(value) {
+        this.$dispatch(actions.changeText({
+            id: this.selection.current.id(),
+            value,
+        }))
+    }
     onInput(event) {
-        this.$emit('table:input', $(event.target))
+        this.updateTextInStore($(event.target).text())
     }
 }
 
