@@ -13,7 +13,7 @@
   padding: 7px 10px;
   display: flex;
 
-  .excel__button {
+  .button {
     @include button(green);
   }
 }
